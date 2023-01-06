@@ -30,7 +30,7 @@ shinyServer(function(input, output, session) {
   # cols <- distinctColorPalette(k = n_topics, altCol = FALSE, runTsne = FALSE)
   cols <- readRDS("color_palette.rds")
   
-  keys <- yaml.load_file("/home/jedidiah/covid19_twitter/config.yaml")
+#  keys <- yaml.load_file("/home/jedidiah/covid19_twitter/config.yaml")
   
   ncov_df_topics_am <- readRDS("ms_df_topics.rds")
   ncov_df_topics_am <- ncov_df_topics_am %>%
