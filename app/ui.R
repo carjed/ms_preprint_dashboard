@@ -18,6 +18,7 @@ library(lubridate)
 library(stringr)
 library(plotly)
 library(DT)
+library(reactable)
 
 # Define UI for application that draws a histogram
 # shinyUI(
@@ -104,34 +105,39 @@ navbarPage(
                   
                 ),
                 
-                actionButton("resetAll", "Reset Selection")
+                actionButton("resetAll", "Reset Selection"),
+                checkboxInput("toggle", "Show Legend", TRUE),
+                bsTooltip("toggle", "Toggle the legend with detailed info about each topic", "right"),
+                tableOutput("topic_table"),
                 ),
+                
         
                 # Show a plot of the generated distribution
                 mainPanel(
-                    selectInput("method", "Visualization Method:",
-                                c("t-SNE" = "tsne",
-                                  "UMAP" = "umap")),
+                    # selectInput("method", "Visualization Method:",
+                    #             c("t-SNE" = "tsne",
+                    #               "UMAP" = "umap")),
+                    # 
+                    # 
+                    # 
+                    # p("Preprints are clustered according to similarity in their topics, and the size of each point indicates that preprint's Altmetric Attention Score. Mouse over points to view preprint details, and click to view on the preprint site. Alternatively, browse selected preprints in the table below."),
+                    # 
+                    # plotlyOutput("distPlot"),
                     
-                    checkboxInput("toggle", "Show Legend", TRUE),
-                    
-                    p("Preprints are clustered according to similarity in their topics, and the size of each point indicates that preprint's Altmetric Attention Score. Mouse over points to view preprint details, and click to view on the preprint site. Alternatively, browse selected preprints in the table below."),
-                    
-                    plotlyOutput("distPlot"),
-                    
-                    tableOutput("topic_table"),
                     
                     # tableOutput("plotdat")
                     
-                    DT::dataTableOutput("plotdat"),
+                    p("Expand a row to view the top 5 most closely-related papers in the corpus"),
+                  
+                    reactableOutput("plotdat")
                     
                     # verbatimTextOutput("hoverIndex"),
                     # verbatimTextOutput("clickIndex"),
                     # verbatimTextOutput("dblclickIndex"),
                     
-                    bsTooltip("method", "Dimensionality reduction method for visualizing the topic clusters", "right"),
+                    # bsTooltip("method", "Dimensionality reduction method for visualizing the topic clusters", "right"),
                     
-                    bsTooltip("toggle", "Toggle the legend with detailed info about each topic", "right")
+                    
                     
                 )
             )

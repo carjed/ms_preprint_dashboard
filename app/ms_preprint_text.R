@@ -1,5 +1,5 @@
 library(tidyverse)
-library(pdftools)
+# library(pdftools)
 library(stringr)
 library(tidytext)
 library(topicmodels)
@@ -25,11 +25,13 @@ topic_cols <- readRDS("color_palette.rds")
 
 # corpus_cached <- readRDS("ms_preprint_corpus.rds")
 preprint_metadata_cached <- readRDS("ms_preprint_metadata_cached.rds")
+# preprint_metadata <- readRDS("ms_preprint_metadata_cached.rds")
 
 preprint_metadata <- data.frame()
 
 # biorxiv
-for(i in 0:51){
+# for(i in 0:51){
+for(i in 0:1){
         results <- paste0("https://www.biorxiv.org/search/%2522multiple%252Bsclerosis%2522%20numresults:75%20sort:publication-date%20direction:descending?page=", i)
         dois_it <- read_html(results) %>% 
             html_elements("span.highwire-cite-metadata-doi.highwire-cite-metadata") %>% 
@@ -54,7 +56,8 @@ for(i in 0:51){
 }
 
 # medrxiv
-for(i in 0:17){
+# for(i in 0:17){
+for(i in 0:1){
     results <- paste0("https://www.medrxiv.org/search/%2522multiple%252Bsclerosis%2522%20numresults:75%20sort:publication-date%20direction:descending?page=", i)
     dois_it <- read_html(results) %>% 
         html_elements("span.highwire-cite-metadata-doi.highwire-cite-metadata") %>% 
@@ -157,7 +160,8 @@ custom_stopwords <- c("preprint", "doi", "doi.org", "medrxiv", "biorxiv",
 # tokenize + generate word counts, dropping stopwords
 # txt_tokenized <- corpus_merged %>%
 txt_tokenized <- on_topic_preprints %>%
-    dplyr::select(doi, doc) %>%
+    # dplyr::select(doi, doc=abstract) %>%
+  dplyr::select(doi, doc) %>%
     unnest_tokens(word, doc, strip_punct=TRUE)
 
 word_counts <- txt_tokenized %>%
@@ -193,6 +197,29 @@ topics_terms_levels <- paste0(topics_terms$topic, ": ", topics_terms$top_10)
 lda_gamma <- tidy(lda_model, matrix = "gamma") %>%
     rowwise() %>%
     mutate(gamma=gamma+runif(1,0,0.0001))
+
+
+# calculate pairwise distances based on LDA gammas
+gamma_matrix <- lda_gamma %>% 
+  pivot_wider(id_cols=document, names_from=topic, values_from=gamma) %>% 
+  as.matrix()
+
+rownames(gamma_matrix) <- gamma_matrix[,1]
+gamma_matrix <- gamma_matrix[,-1]
+
+d1 <- dist(gamma_matrix)
+
+dist_tidy <- tidy(d1)
+
+dist_top5 <- dist_tidy %>%
+  group_by(item1) %>%
+  top_n(-5) %>%
+  dplyr::select(item1, doi=item2, distance) %>%
+  nest(neighbors=c(doi, distance)) %>%
+  rename(doi=item1)
+
+
+  
 
 docs_order <- lda_gamma %>%
     group_by(document) %>%
@@ -260,6 +287,7 @@ ms_df_topics <- left_join(ms_preprint_corpus_full %>%
                             select(-doc), 
                           docs_order %>% 
                             select(doi=document, topic_group)) %>% 
+    left_join(dist_top5, by="doi") %>%
     mutate(date = as.Date(date)) %>%
     dplyr::filter(!is.na(topic_group)) %>%
     left_join(tsne_df, by="doi") %>%

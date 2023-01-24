@@ -20,6 +20,7 @@ library(htmlwidgets)
 # library(yaml)
 # library(mongolite)
 library(DT)
+library(reactable)
 # library(shinydashboard)
 
 # Define server logic required to draw a histogram
@@ -36,9 +37,42 @@ shinyServer(function(input, output, session) {
   ncov_df_topics_am <- ncov_df_topics_am %>%
     mutate(topic=str_wrap(topic, width=60))
   ncov_df_topics_am <- ncov_df_topics_am %>%
-    mutate(topic=factor(topic, levels=str_sort(unique(ncov_df_topics_am$topic), numeric=T)))
+    mutate(topic=factor(topic, levels=str_sort(unique(ncov_df_topics_am$topic), numeric=T))) %>%
+    mutate(topic=topic_group, doi_index=doi) %>%
+    dplyr::select(topic,
+                  authors,
+                  abstract,
+                  topic_group,
+                  doi_index,
+                  doi, 
+                  date=date, 
+                  title=title, 
+                  journal=server, 
+                  url,
+                  neighbors) %>%
+    # dplyr::filter(!is.na(topic)) %>%
+    mutate(topic=cell_spec(topic, "html",
+                           color="black", align = "c",
+                           background=cols[topic])) %>%
+    mutate(journal=cell_spec(tolower(journal), "html",
+                             color="white", align = "c",
+                             background=ifelse(journal=="biorxiv", "#bc2635", "#0e4c92"))) %>%
+    # mutate(score = cell_spec(
+    #   round(as.numeric(score), 1), color = "white", bold = T, align="c",
+    #   background = spec_color(log(as.numeric(score)), end = 1, option = "D", direction = -1))) %>%
+    mutate(title=paste0("<a href='", url,"' target='_blank'>", title,"</a>")) %>%
+    dplyr::select(-c(url)) %>%
+    arrange(desc(date))
   
-  tf_table <- readRDS("ms_tf_table.rds")
+  dist_top5_un <- ncov_df_topics_am %>%
+    dplyr::select(doi_index, neighbors) %>%
+    # rename(doi_index=doi) %>%
+    unnest(neighbors) %>%
+    left_join(ncov_df_topics_am, by=c("doi")) %>%
+    dplyr::select(topic, doi_index=doi_index.x, doi, date, title, journal)
+   
+  tf_table <- readRDS("ms_tf_table.rds") %>%
+    dplyr::select(topic, `Top 30 Terms`)
   
   output$hoverIndex <- renderText({
     UI_out <- input$hoverIndexJS
@@ -160,20 +194,21 @@ shinyServer(function(input, output, session) {
     })
     
     plotdat <- reactive({
-      
+
         search <- unlist(strsplit(tolower(input$search), " "))
-      
-      
-        filtered_df <- ncov_df_topics_am %>% 
+
+
+        filtered_df <- ncov_df_topics_am %>%
             # mutate(score_range=ceiling(log10(as.numeric(score)+1))) %>%
             # mutate(score_range=recode(score_range, `1`="<10", `2`="10-99", `3`="100-999", `4`="1,000+", .default=NA_character_)) %>%
             dplyr::filter(date %within% interval(input$date_range[1], input$date_range[2]) &
                               topic_group %in% input$preprint_topics &
                               # (all(stringr::str_detect(title, unlist(strsplit(input$search, " ")))) | all(stringr::str_detect(abstract, unlist(strsplit(input$search, " ")))) | all(stringr::str_detect(authors, unlist(strsplit(input$search, " ")))) ) )
-                              (grepl(paste0("(?=.*", search, ")", collapse=""), tolower(title), perl=TRUE) | 
-                                 grepl(paste0("(?=.*", search, ")", collapse=""), tolower(authors), perl=TRUE) | 
-                                 grepl(paste0("(?=.*", search, ")", collapse=""), tolower(abstract), perl=TRUE)))
-        # 
+                              (grepl(paste0("(?=.*", search, ")", collapse=""), tolower(title), perl=TRUE) |
+                                 grepl(paste0("(?=.*", search, ")", collapse=""), tolower(authors), perl=TRUE) |
+                                 grepl(paste0("(?=.*", search, ")", collapse=""), tolower(abstract), perl=TRUE)))# %>%
+
+        #
         # if(input$ntile<0){
         #   filtered_df <- filtered_df %>%
         #     dplyr::filter(pub_ntile<=input$ntile)
@@ -181,89 +216,163 @@ shinyServer(function(input, output, session) {
         #   filtered_df <- filtered_df %>%
         #     dplyr::filter(pub_ntile>=input$ntile)
         # }
-        
+
         # if(input$ht_only==TRUE){
         #   filtered_df <- filtered_df %>%
         #     dplyr::filter(as.numeric(cited_by_tweeters_count) > 100)
         # }
-        
+
         return(filtered_df)
-        
-    })
-    
-    output$plotdat <- DT::renderDataTable(plotdat() %>%
-                                              # dplyr::select(abs=abstract, topic=topic_group, date=date, title=title, journal=site, link, images.small) %>%
-                                              dplyr::select(topic=topic_group, date=date, title=title, journal=server, url) %>%
-                                              # dplyr::filter(!is.na(topic)) %>%
-                                              mutate(topic=cell_spec(topic, "html", 
-                                                                     color="black", align = "c",
-                                                                     background=cols[topic])) %>%
-                                              mutate(journal=cell_spec(tolower(journal), "html", 
-                                                                     color="white", align = "c",
-                                                                     background=ifelse(journal=="biorxiv", "#bc2635", "#0e4c92"))) %>%
-                                              # mutate(score = cell_spec(
-                                              #   round(as.numeric(score), 1), color = "white", bold = T, align="c",
-                                              #   background = spec_color(log(as.numeric(score)), end = 1, option = "D", direction = -1))) %>%
-                                            mutate(title=paste0("<a href='", url,"' target='_blank'>", title,"</a>")) %>%
-                                              dplyr::select(-c(url)) %>%
-                                              arrange(desc(date)), server = FALSE, escape=FALSE, rownames=F,
-                                          
-                                          # options=list(columnDefs = list(list(visible=FALSE, targets=c(0)))),
-                                          # 
-                                          # callback = JS("
-                                          #       /* code for columns on hover */
-                                          #       table.on('mouseenter', 'td', function() {
-                                          #           var td = $(this);
-                                          #           var info_out = table.cell( this ).index().columnVisible;
-                                          #           Shiny.onInputChange('hoverIndexJS', info_out);
-                                          #       });
-                                          #       /* code for cell content on click */
-                                          #       table.on('click', 'td', function() {
-                                          #          var td = $(this);
-                                          #          var info_out = table.cell( this ).data();
-                                          #          Shiny.onInputChange('clickIndexJS', info_out);
-                                          #       });
-                                          #       /* code for columns on doubleclick */
-                                          #       table.on('dblclick', 'td', function() {
-                                          #           var td = $(this);
-                                          #           var info_out = table.cell( this ).index().row;
-                                          #           Shiny.onInputChange('dblclickIndexJS', info_out);
-                                          #       });"
-                                          #               
-                                          # )
-                                          # 
-                                          )
-    
-    output$distPlot <- renderPlotly({
-
-        # generate bins based on input$bins from ui.R
-        # x    <- faithful[, 2]
-        # bins <- seq(min(x), max(x), length.out = input$bins + 1)
-        # if(input$date == "all"){
-        #     plotdat <- ncov_df_topics_am
-        # } else {
-        #     plotdat <- ncov_df_topics_am %>%
-        #         dplyr::filter(months(date) == input$date)
-        # }
-        # 
-        # if(input$am_range == "all"){
-        #     plotdat <- ncov_df_topics_am
-        # }
-        
-        # plotdat <- ncov_df_topics_am %>% 
-        #     # mutate(score_range=ceiling(log10(as.numeric(score)+1))) %>%
-        #     # mutate(score_range=recode(score_range, `1`="<10", `2`="10-99", `3`="100-999", `4`="1,000+", .default=NA_character_)) %>%
-        #     dplyr::filter(date %within% interval(input$date_range[1], input$date_range[2]) &
-        #                       as.numeric(score) >= input$am_range[1] &
-        #                       as.numeric(score) <= input$am_range[2] &
-        #                       (grepl(tolower(input$search), tolower(title)) | grepl(tolower(input$search), tolower(authors)) | grepl(tolower(input$search), tolower(abstract)))
-        #                   )
-
-        # draw the histogram with the specified number of bins
-        # hist(x, breaks = bins, col = 'darkgray', border = 'white')
-        plot_embedding_scatter(plotdat(), input$method, cols)
 
     })
+    
+    neighbordat <- reactive({
+      ndt <- plotdat() %>%
+        # ndt <- ncov_df_topics_am %>%
+      dplyr::select(doi, neighbors) %>%
+      rename(doi_index=doi) %>%
+      unnest(neighbors) %>%
+      left_join(ncov_df_topics_am) %>%
+      dplyr::select(topic, doi_index, doi, date, title, server)
+      
+      return(ndt)
+    })
+    # 
+    # output$plotdat <- DT::renderDataTable(plotdat() %>%
+    #                                           # dplyr::select(abs=abstract, topic=topic_group, date=date, title=title, journal=site, link, images.small) %>%
+    #                                           dplyr::select(topic=topic_group, date=date, title=title, journal=server, url) %>%
+    #                                           # dplyr::filter(!is.na(topic)) %>%
+    #                                           mutate(topic=cell_spec(topic, "html",
+    #                                                                  color="black", align = "c",
+    #                                                                  background=cols[topic])) %>%
+    #                                           mutate(journal=cell_spec(tolower(journal), "html",
+    #                                                                  color="white", align = "c",
+    #                                                                  background=ifelse(journal=="biorxiv", "#bc2635", "#0e4c92"))) %>%
+    #                                           # mutate(score = cell_spec(
+    #                                           #   round(as.numeric(score), 1), color = "white", bold = T, align="c",
+    #                                           #   background = spec_color(log(as.numeric(score)), end = 1, option = "D", direction = -1))) %>%
+    #                                         mutate(title=paste0("<a href='", url,"' target='_blank'>", title,"</a>")) %>%
+    #                                           dplyr::select(-c(url)) %>%
+    #                                           arrange(desc(date)), server = FALSE, escape=FALSE, rownames=F,
+    # 
+    #                                       # options=list(columnDefs = list(list(visible=FALSE, targets=c(0)))),
+    #                                       #
+    #                                       # callback = JS("
+    #                                       #       /* code for columns on hover */
+    #                                       #       table.on('mouseenter', 'td', function() {
+    #                                       #           var td = $(this);
+    #                                       #           var info_out = table.cell( this ).index().columnVisible;
+    #                                       #           Shiny.onInputChange('hoverIndexJS', info_out);
+    #                                       #       });
+    #                                       #       /* code for cell content on click */
+    #                                       #       table.on('click', 'td', function() {
+    #                                       #          var td = $(this);
+    #                                       #          var info_out = table.cell( this ).data();
+    #                                       #          Shiny.onInputChange('clickIndexJS', info_out);
+    #                                       #       });
+    #                                       #       /* code for columns on doubleclick */
+    #                                       #       table.on('dblclick', 'td', function() {
+    #                                       #           var td = $(this);
+    #                                       #           var info_out = table.cell( this ).index().row;
+    #                                       #           Shiny.onInputChange('dblclickIndexJS', info_out);
+    #                                       #       });"
+    #                                       #
+    #                                       # )
+    #                                       #
+    #                                       )
+    
+    output$plotdat <- renderReactable({
+      reactable(plotdat(), 
+                defaultPageSize = 15, #%>% 
+                #                   dplyr::select(topic=topic_group, 
+                #                                 doi_index=doi, 
+                #                                 date=date, 
+                #                                 title=title, 
+                #                                 journal=server, 
+                #                                 url) %>%
+                #                   # dplyr::filter(!is.na(topic)) %>%
+                #                   mutate(topic=cell_spec(topic, "html",
+                #                                          color="black", align = "c",
+                #                                          background=cols[topic])) %>%
+                #                   mutate(journal=cell_spec(tolower(journal), "html",
+                #                                            color="white", align = "c",
+                #                                            background=ifelse(journal=="biorxiv", "#bc2635", "#0e4c92"))) %>%
+                #                   # mutate(score = cell_spec(
+                #                   #   round(as.numeric(score), 1), color = "white", bold = T, align="c",
+                #                   #   background = spec_color(log(as.numeric(score)), end = 1, option = "D", direction = -1))) %>%
+                #                   mutate(title=paste0("<a href='", url,"' target='_blank'>", title,"</a>")) %>%
+                #                   dplyr::select(-c(url)) %>%
+                #                   arrange(desc(date)), 
+                columns=list(topic=colDef(html = TRUE, minWidth=20),
+                             date=colDef(minWidth=50),
+                             doi_index = colDef(show = FALSE),
+                             doi = colDef(show = FALSE),
+                             authors = colDef(show = FALSE),
+                             topic_group = colDef(show = FALSE),
+                             abstract = colDef(show = FALSE),
+                             title=colDef(html = TRUE, minWidth=150),
+                             journal=colDef(html = TRUE),
+                             neighbors = colDef(show = FALSE)),
+              details=function(index) {
+
+                mdt_sub <- dist_top5_un[dist_top5_un$doi_index==plotdat()$doi_index[index],] #%>% left_join(ncov_df_topics_am)
+                # mdt_sub <- ncov_df_topics_am %>% dplyr::filter(doi_index %in% plotdat()$[index,]$neighbors[[1]]$doi)
+                  # mutate(topic=cell_spec(topic, "html",
+                  #                        color="black", align = "c",
+                  #                        background=cols[topic])) %>%
+                  # mutate(journal=cell_spec(tolower(journal), "html",
+                  #                          color="white", align = "c",
+                  #                          background=ifelse(journal=="biorxiv", "#bc2635", "#0e4c92"))) %>%
+                  # mutate(score = cell_spec(
+                  #   round(as.numeric(score), 1), color = "white", bold = T, align="c",
+                  #   background = spec_color(log(as.numeric(score)), end = 1, option = "D", direction = -1))) %>%
+                  # mutate(title=paste0("<a href='", url,"' target='_blank'>", title,"</a>")) %>%
+                  # dplyr::select(-c(url)) %>%
+                  # arrange(desc(date))
+                htmltools::div(style = "padding: 1rem",
+                               reactable(mdt_sub,
+                                         columns=list(topic=colDef(html = TRUE, minWidth=20),
+                                                      date=colDef(minWidth=50),
+                                                      doi_index = colDef(show = FALSE),
+                                                      doi = colDef(show = FALSE),
+                                                      title=colDef(html = TRUE, minWidth=150),
+                                                      journal=colDef(html = TRUE)),
+                                         outlined = TRUE)
+                )
+              }
+    )
+    })
+    # 
+    # output$distPlot <- renderPlotly({
+    # 
+    #     # generate bins based on input$bins from ui.R
+    #     # x    <- faithful[, 2]
+    #     # bins <- seq(min(x), max(x), length.out = input$bins + 1)
+    #     # if(input$date == "all"){
+    #     #     plotdat <- ncov_df_topics_am
+    #     # } else {
+    #     #     plotdat <- ncov_df_topics_am %>%
+    #     #         dplyr::filter(months(date) == input$date)
+    #     # }
+    #     # 
+    #     # if(input$am_range == "all"){
+    #     #     plotdat <- ncov_df_topics_am
+    #     # }
+    #     
+    #     # plotdat <- ncov_df_topics_am %>% 
+    #     #     # mutate(score_range=ceiling(log10(as.numeric(score)+1))) %>%
+    #     #     # mutate(score_range=recode(score_range, `1`="<10", `2`="10-99", `3`="100-999", `4`="1,000+", .default=NA_character_)) %>%
+    #     #     dplyr::filter(date %within% interval(input$date_range[1], input$date_range[2]) &
+    #     #                       as.numeric(score) >= input$am_range[1] &
+    #     #                       as.numeric(score) <= input$am_range[2] &
+    #     #                       (grepl(tolower(input$search), tolower(title)) | grepl(tolower(input$search), tolower(authors)) | grepl(tolower(input$search), tolower(abstract)))
+    #     #                   )
+    # 
+    #     # draw the histogram with the specified number of bins
+    #     # hist(x, breaks = bins, col = 'darkgray', border = 'white')
+    #     plot_embedding_scatter(plotdat(), input$method, cols)
+    # 
+    # })
     
 
     output$downloadData <- downloadHandler(
